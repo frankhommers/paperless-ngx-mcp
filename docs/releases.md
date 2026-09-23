@@ -7,7 +7,9 @@ GitHub release. Draft and prerelease releases do not publish.
 ## One-time bootstrap
 
 npm requires the package to exist before a trusted publisher can be configured.
-The first version is published locally from the same inspected archive:
+The first version is published locally from the same inspected archive. Use the
+same Node.js major version as the workflow (Node 24); different Node/zlib versions
+can produce different gzip bytes even when all tar contents are identical:
 
 ```sh
 npm login
@@ -28,7 +30,10 @@ credentials for the exact repository and workflow. See the official
 
 Create the first GitHub release after the bootstrap. Its workflow verifies that
 the already published archive has the same integrity rather than publishing a
-duplicate. That first local publication has no GitHub provenance; subsequent
+duplicate. The 1.2.0 bootstrap used Node 26, so its Node 24 workflow correctly rejected a
+different gzip integrity despite identical uncompressed tar bytes. Version 1.2.1
+is published entirely by the workflow. That first local publication has no GitHub
+provenance; subsequent
 versions published by the workflow include provenance.
 
 ## Subsequent releases

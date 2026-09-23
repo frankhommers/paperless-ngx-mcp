@@ -6,7 +6,7 @@ This fork includes reviewed community fixes and features. See [the PR integratio
 
 ## Protocol support
 
-Version 1.2.0 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
+Version 1.2.1 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
 
 See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
 
@@ -21,7 +21,7 @@ npx -y @frankhommers/paperless-ngx-mcp@latest https://your-paperless-instance
 
 The npm package includes compiled JavaScript. Git access and build-script
 permissions are not needed. `@latest` follows published releases on a new start;
-use `@1.2.0` to pin this release. A running server must be restarted to update.
+use `@1.2.1` to pin this release. A running server must be restarted to update.
 
 ```json
 {
