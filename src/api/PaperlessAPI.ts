@@ -17,7 +17,11 @@ export function normalizeBaseUrl(baseUrl: string): string {
  * reverse proxy). Without this check callers only see
  * "Unexpected token '<'" and cannot tell what went wrong.
  */
-export async function parseJsonResponse(response: Response, url: string) {
+export async function parseJsonResponse(
+  response: Response,
+  url: string,
+  redact: (text: string) => string = (text) => text,
+) {
   const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();
 
@@ -41,7 +45,7 @@ export async function parseJsonResponse(response: Response, url: string) {
     return JSON.parse(text);
   } catch (error) {
     throw new Error(
-      `Invalid JSON response from ${url}: HTTP ${response.status}: ${text.slice(0, 200)}`,
+      `Invalid JSON response from ${url}: HTTP ${response.status}: ${redact(text).slice(0, 200)}`,
     );
   }
 }
@@ -55,23 +59,42 @@ export class PaperlessAPI {
     this.token = token;
   }
 
-  async request(path: string, options: RequestInit = {}) {
-    const url = `${this.baseUrl}/api${path}`;
-    const headers = new Headers(options.headers);
-    headers.set("Authorization", `Token ${this.token}`);
-    headers.set("Accept", "application/json; version=5");
-    if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
-      headers.set("Content-Type", "application/json");
-    }
-    const response = await fetch(url, { ...options, headers });
-    if (!response.ok) {
-      const body = await response.text();
+  private redact(text: string): string {
+    return this.token ? text.split(this.token).join("[REDACTED]") : text;
+  }
+
+  private async withSafeErrors<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      // Do not retain the original error/cause: fetch errors can contain
+      // request headers, and proxies can echo credentials in response bodies.
       throw new Error(
-        `HTTP error! status: ${response.status} for ${url}: ${body.slice(0, 200)}`,
+        this.redact(error instanceof Error ? error.message : String(error)),
       );
     }
+  }
 
-    return parseJsonResponse(response, url);
+  async request(path: string, options: RequestInit = {}) {
+    return this.withSafeErrors(async () => {
+      const url = `${this.baseUrl}/api${path}`;
+      const headers = new Headers(options.headers);
+      headers.set("Authorization", `Token ${this.token}`);
+      // Let Paperless select its supported default API version.
+      headers.set("Accept", "application/json");
+      if (!(options.body instanceof FormData) && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
+      const response = await fetch(url, { ...options, headers });
+      if (!response.ok) {
+        const body = this.redact(await response.text());
+        throw new Error(
+          `HTTP error! status: ${response.status} for ${url}: ${body.slice(0, 200)}`,
+        );
+      }
+
+      return parseJsonResponse(response, url, (text) => this.redact(text));
+    });
   }
 
   // Document operations
@@ -149,17 +172,19 @@ export class PaperlessAPI {
   }
 
   async downloadDocument(id, asOriginal = false) {
-    const query = asOriginal ? "?original=true" : "";
-    const response = await fetch(
-      `${this.baseUrl}/api/documents/${id}/download/${query}`,
-      {
-        headers: {
-          Authorization: `Token ${this.token}`,
+    return this.withSafeErrors(async () => {
+      const query = asOriginal ? "?original=true" : "";
+      const response = await fetch(
+        `${this.baseUrl}/api/documents/${id}/download/${query}`,
+        {
+          headers: {
+            Authorization: `Token ${this.token}`,
+          },
         },
-      },
-    );
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return response;
+      );
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return response;
+    });
   }
 
   // Tag operations

@@ -68,7 +68,7 @@ async function main() {
   const api = new PaperlessAPI(baseUrl, token);
 
   function createServer(): McpServer {
-    const server = new McpServer({ name: "paperless-ngx", version: "1.1.0" });
+    const server = new McpServer({ name: "paperless-ngx", version: "1.1.1" });
     registerDocumentTools(server, api);
     registerTagTools(server, api);
     registerCustomFieldTools(server, api);

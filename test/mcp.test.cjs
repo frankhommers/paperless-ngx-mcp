@@ -51,8 +51,15 @@ async function paperless(t) {
       res.writeHead(401).end();
       return;
     }
+    if (req.headers.accept?.includes("version=")) {
+      res.writeHead(406, { "content-type": "application/json" });
+      res.end(JSON.stringify({ detail: 'Invalid version in "Accept" header.' }));
+      return;
+    }
     if (req.url.includes("/documents/999/")) {
-      res.writeHead(404).end("Not found");
+      res.writeHead(404).end(
+        `Not found; Authorization: ${req.headers.authorization}`,
+      );
       return;
     }
     if (req.method === "DELETE") {
@@ -94,7 +101,7 @@ async function paperless(t) {
   return { url: `http://127.0.0.1:${server.address().port}`, requests };
 }
 
-async function connectClient(t, url, mode) {
+async function connectClient(t, url, mode, logs = []) {
   const modern = mode.endsWith("modern");
   const ClientType = modern ? ModernClient : Client;
   const client = new ClientType(
@@ -105,7 +112,7 @@ async function connectClient(t, url, mode) {
   );
   let transport;
   if (mode.startsWith("http")) {
-    const mcpUrl = await httpServer(t, url);
+    const mcpUrl = await httpServer(t, url, logs);
     const TransportType = modern
       ? ModernHTTPTransport
       : StreamableHTTPClientTransport;
@@ -115,8 +122,9 @@ async function connectClient(t, url, mode) {
     transport = new TransportType({
       command: process.execPath,
       args: ["build/index.js", url + "/", "test-token"],
-      stderr: "inherit",
+      stderr: "pipe",
     });
+    transport.stderr.on("data", (data) => logs.push(data.toString()));
   }
   t.after(() => client.close());
   await client.connect(transport);
@@ -142,6 +150,9 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
         const request = api.requests.at(-1);
         assert.equal(request.method, method, name);
         assert.equal(request.url, path, name);
+        if (name !== "download_document") {
+          assert.equal(request.headers.accept, "application/json", name);
+        }
         return result;
       }
       for (const [singular, plural] of [
@@ -332,7 +343,8 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
     { timeout: 15000 },
     async (t) => {
       const api = await paperless(t);
-      const client = await connectClient(t, api.url, mode);
+      const logs = [];
+      const client = await connectClient(t, api.url, mode, logs);
       for (const resource of ["correspondent", "document_type"]) {
         for (const [name, number] of [
           ["none", 0],
@@ -388,12 +400,15 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
         const result = await client.callTool({ name, arguments: { id: 999 } });
         assert.equal(result.isError, true);
         assert.match(result.content[0].text, /404/);
+        assert.ok(!JSON.stringify(result).includes("test-token"));
       }
+      await client.close();
+      assert.ok(!logs.join("").includes("test-token"));
     },
   );
 }
 
-async function httpServer(t, apiUrl) {
+async function httpServer(t, apiUrl, logs = []) {
   const child = spawn(
     process.execPath,
     ["build/index.js", "--http", "--port", "0"],
@@ -412,6 +427,7 @@ async function httpServer(t, apiUrl) {
   const port = await new Promise((resolve, reject) => {
     child.stdout.on("data", (data) => {
       output += data;
+      logs.push(data.toString());
       const match = output.match(/listening on port (\d+)/);
       if (match) resolve(match[1]);
     });
@@ -421,6 +437,7 @@ async function httpServer(t, apiUrl) {
     );
     child.stderr.on("data", (data) => {
       output += data;
+      logs.push(data.toString());
     });
   });
   return new URL(`http://127.0.0.1:${port}/mcp`);

@@ -6,7 +6,7 @@ This fork includes reviewed community fixes and features. See [the PR integratio
 
 ## Protocol support
 
-Version 1.1.0 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
+Version 1.1.1 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
 
 See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
 
@@ -53,6 +53,8 @@ Configure your MCP client using the absolute path to the compiled entry point:
 ```
 
 Generate an API token in your Paperless user profile. The base URL is the instance root, optionally including its deployment subpath, without `/api`. Trailing slashes are supported.
+
+Paperless API requests use `Accept: application/json`, allowing the instance to select its supported default API version. No Paperless API version is forced; this is independent of the MCP protocol version. API errors redact the configured token before being returned to clients.
 
 ## Transports
 
