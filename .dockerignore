@@ -1,2 +1,7 @@
 node_modules
-build 
+build
+.git
+.env
+.env.*
+*.log
+coverage

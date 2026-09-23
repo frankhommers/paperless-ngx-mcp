@@ -1,349 +1,152 @@
 # Paperless-NGX MCP Server
 
-An MCP (Model Context Protocol) server for interacting with a Paperless-NGX API server. This server provides tools for managing documents, tags, correspondents, and document types in your Paperless-NGX instance.
+A community integration fork of [nloui/paperless-mcp](https://github.com/nloui/paperless-mcp). Connect MCP clients to Paperless-NGX to search, upload, download and edit documents, and manage tags, correspondents, document types, custom fields and storage paths.
 
-## Quick Start
+This fork includes reviewed community fixes and features. See [the PR integration record](docs/pr-integration.md) for every upstream PR, attribution, decisions and adaptations.
 
-### Installation
-1. Install the MCP server:
+## Install from source
+
+Requires Node.js 20 or later and a Paperless-NGX instance with an API token.
+
 ```bash
-npm install -g paperless-mcp
+git clone https://github.com/frankhommers/paperless-ngx-mcp.git
+cd paperless-ngx-mcp
+npm ci
 ```
 
-2. Add it to your Claude's MCP configuration:
+`npm ci` builds `build/index.js`. This fork has not been published to npm; upstream npm packages do not contain these changes.
 
-For VSCode extension, edit `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`:
+Configure your MCP client using the absolute path to the compiled entry point:
+
 ```json
 {
   "mcpServers": {
     "paperless": {
-      "command": "npx",
-      "args": ["paperless-mcp", "http://your-paperless-instance:8000", "your-api-token"]
+      "command": "node",
+      "args": [
+        "/absolute/path/paperless-ngx-mcp/build/index.js",
+        "http://your-paperless-instance:8000",
+        "your-api-token"
+      ]
     }
   }
 }
 ```
 
-For Claude desktop app, edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "paperless": {
-      "command": "npx",
-      "args": ["paperless-mcp", "http://your-paperless-instance:8000", "your-api-token"]
-    }
-  }
-}
+Generate an API token in your Paperless user profile. The base URL is the instance root, optionally including its deployment subpath, without `/api`. Trailing slashes are supported.
+
+## Transports
+
+### stdio
+
+```bash
+node build/index.js http://localhost:8000 your-api-token
 ```
 
-3. Get your API token:
-   1. Log into your Paperless-NGX instance
-   2. Click your username in the top right
-   3. Select "My Profile"
-   4. Click the circular arrow button to generate a new token
+### Streamable HTTP and legacy SSE
 
-4. Replace the placeholders in your MCP config:
-   - `http://your-paperless-instance:8000` with your Paperless-NGX URL
-   - `your-api-token` with the token you just generated
-
-That's it! Now you can ask Claude to help you manage your Paperless-NGX documents.
-
-## Example Usage
-
-Here are some things you can ask Claude to do:
-
-- "Show me all documents tagged as 'Invoice'"
-- "Search for documents containing 'tax return'"
-- "Create a new tag called 'Receipts' with color #FF0000"
-- "Download document #123"
-- "List all correspondents"
-- "Create a new document type called 'Bank Statement'"
-
-## Available Tools
-
-### Document Operations
-
-#### list_documents
-Get a paginated list of all documents.
-
-Parameters:
-- page (optional): Page number
-- page_size (optional): Number of documents per page
-
-```typescript
-list_documents({
-  page: 1,
-  page_size: 25
-})
+```bash
+PAPERLESS_URL=http://localhost:8000 API_KEY=your-api-token \
+  node build/index.js --http --port 3000
 ```
 
-#### get_document
-Get a specific document by ID.
+HTTP mode reads Paperless credentials from `PAPERLESS_URL` and `API_KEY`.
 
-Parameters:
-- id: Document ID
+- `POST /mcp`: initialize a session, then send subsequent messages with the returned `Mcp-Session-Id` header.
+- `GET /mcp`: open the session's SSE notification stream.
+- `DELETE /mcp`: terminate the session.
+- `GET /sse` and `POST /messages?sessionId=...`: legacy SSE transport.
 
-```typescript
-get_document({
-  id: 123
-})
+Each client session has a separate MCP server. Sessions live in memory; use one process or sticky routing, and reconnect after a restart. Clients should terminate sessions when finished. The HTTP listener uses the configured Paperless token for all clients and has no client authentication of its own; keep it on a trusted network or behind an authenticated proxy.
+
+### Docker
+
+```bash
+docker build -t paperless-ngx-mcp .
+docker run --rm -p 127.0.0.1:3000:3000 \
+  -e PAPERLESS_URL=http://host.docker.internal:8000 \
+  -e API_KEY=your-api-token \
+  paperless-ngx-mcp
 ```
 
-#### search_documents
-Full-text search across documents.
+The container starts in HTTP mode on port 3000. Use a Paperless URL reachable from inside the container. The Docker build runs the regression suite.
 
-Parameters:
-- query: Search query string
+## Tools
 
-```typescript
-search_documents({
-  query: "invoice 2024"
-})
-```
+All 34 tools return MCP text content blocks containing JSON. Errors are returned as MCP tool errors. `get_document` preserves full OCR text; document lists, search and similarity results omit OCR and long download/thumbnail URLs to reduce response size. List endpoints return Paperless's paginated response.
 
-#### download_document
-Download a document file by ID.
+### Documents and search
 
-Parameters:
-- id: Document ID
-- original (optional): If true, downloads original file instead of archived version
+| Tool | Parameters and behavior |
+| --- | --- |
+| `list_documents` | Optional `page`, `page_size`, `search` (title), `correspondent`, `document_type`, `tag`, `storage_path`, `created__gte`, `created__lte`, `ordering`. |
+| `get_document` | `id`; returns the complete document, including OCR text. |
+| `search_documents` | `query`; optional `page`, `page_size`. Paperless full-text search syntax. |
+| `find_similar_documents` | `document_id`; optional `page`, `page_size`. |
+| `search_autocomplete` | Required nonempty `term`; optional positive `limit`. |
+| `get_task_status` | `task_id` UUID returned by an upload. |
+| `post_document` | Base64 `file`, `filename`; optional `mime_type`, title, date, correspondent/type/path IDs, tags, archive serial number and custom field IDs. Returns an asynchronous task ID. |
+| `update_document` | `id` and at least one field: `title`, `content`, `created`, `correspondent`, `document_type`, `storage_path`, `tags`, `archive_serial_number`, `custom_fields`. |
+| `download_document` | `id`; optional `original`. Returns `{ blob, filename }`, with base64 file bytes. |
+| `bulk_edit_documents` | `documents` (IDs), `method`, and method-specific parameters described below. |
 
-```typescript
-download_document({
+Pagination starts at 1; document `page_size` is limited to 100. Upload MIME types are inferred from the filename, with an optional explicit override and an octet-stream fallback.
+
+Document updates use PATCH. Omitted fields stay unchanged. Use `null` to clear correspondent, document type, storage path or archive serial number. `tags` replaces the full tag list. Custom fields use `{ field: ID, value: ... }` entries; document-link values can be arrays of IDs. The archive serial number is an integer from 0 to 4294967295.
+
+```js
+update_document({
   id: 123,
-  original: false
+  title: "September invoice",
+  created: "2026-09-01",
+  correspondent: null,
+  tags: [2, 7],
+  custom_fields: [{ field: 4, value: "INV-123" }]
+})
+
+list_documents({ tag: 7, ordering: "-created", page_size: 10 })
+```
+
+Bulk document methods: `set_correspondent`, `set_document_type`, `set_storage_path`, `add_tag`, `remove_tag`, `modify_tags`, `delete`, `reprocess`, `set_permissions`, `merge`, `split`, `rotate`, `delete_pages`. Use the corresponding ID field for assignments, `tag` for a single tag, or `add_tags`/`remove_tags` for tag changes. Merge accepts `metadata_document_id` and `delete_originals`; split accepts `delete_originals`; page operations accept `pages`; rotate accepts `degrees`. Permission settings use `permissions` with `owner`, `set_permissions` and `merge`.
+
+Bulk `set_title` is not a Paperless API method. Use `update_document` for each document instead.
+
+### Metadata management
+
+| Resource | Tools |
+| --- | --- |
+| Tags | `list_tags`, `create_tag`, `update_tag`, `delete_tag`, `bulk_edit_tags` |
+| Correspondents | `list_correspondents`, `create_correspondent`, `update_correspondent`, `delete_correspondent`, `bulk_edit_correspondents` |
+| Document types | `list_document_types`, `create_document_type`, `update_document_type`, `delete_document_type`, `bulk_edit_document_types` |
+| Storage paths | `list_storage_paths`, `create_storage_path`, `update_storage_path`, `delete_storage_path`, `bulk_edit_storage_paths` |
+| Custom fields | `list_custom_fields`, `create_custom_field`, `update_custom_field`, `delete_custom_field` |
+
+Create operations require `name`; updates and deletes require `id`. Tag updates also require `name`. Tags accept hex `color`. Correspondents, document types, tags and storage paths accept `match` and `matching_algorithm`. Storage path creation also requires a `path` template. Changing templates may move existing files.
+
+Tags and storage paths use Paperless's numeric matching codes: **0 none, 1 any, 2 all, 3 exact, 4 regular expression, 5 fuzzy, 6 automatic**. Correspondents and document types accept the names `none`, `any`, `all`, `exact`, `regular expression`, `fuzzy`, `auto`, which are converted to those codes.
+
+Bulk metadata operations take resource IDs (`tag_ids`, `correspondent_ids`, `document_type_ids` or `storage_path_ids`), `operation` (`delete` or `set_permissions`), and optional `owner`, `permissions` and `merge`.
+
+Custom field creation requires `data_type`: `string`, `url`, `date`, `boolean`, `integer`, `float`, `monetary`, `documentlink` or `select`. `extra_data` can contain `default_currency` or `select_options`. Select options are objects with a `label` and optional `id`, not plain strings. Preserve IDs from `list_custom_fields` when editing existing options to retain document values. Deleting a custom field also deletes its associated values.
+
+```js
+create_custom_field({
+  name: "Payment status",
+  data_type: "select",
+  extra_data: { select_options: [{ label: "Open" }, { label: "Paid" }] }
 })
 ```
 
-#### bulk_edit_documents
-Perform bulk operations on multiple documents.
+Tool schemas expose detailed parameter descriptions and read-only/destructive annotations through `tools/list`.
 
-Parameters:
-- documents: Array of document IDs
-- method: One of:
-  - set_correspondent: Set correspondent for documents
-  - set_document_type: Set document type for documents
-  - set_storage_path: Set storage path for documents
-  - add_tag: Add a tag to documents
-  - remove_tag: Remove a tag from documents
-  - modify_tags: Add and/or remove multiple tags
-  - delete: Delete documents
-  - reprocess: Reprocess documents
-  - set_permissions: Set document permissions
-  - merge: Merge multiple documents
-  - split: Split a document into multiple documents
-  - rotate: Rotate document pages
-  - delete_pages: Delete specific pages from a document
-- Additional parameters based on method:
-  - correspondent: ID for set_correspondent
-  - document_type: ID for set_document_type
-  - storage_path: ID for set_storage_path
-  - tag: ID for add_tag/remove_tag
-  - add_tags: Array of tag IDs for modify_tags
-  - remove_tags: Array of tag IDs for modify_tags
-  - permissions: Object for set_permissions with owner, permissions, merge flag
-  - metadata_document_id: ID for merge to specify metadata source
-  - delete_originals: Boolean for merge/split
-  - pages: String for split "[1,2-3,4,5-7]" or delete_pages "[2,3,4]"
-  - degrees: Number for rotate (90, 180, or 270)
+## Development and validation
 
-Examples:
-```typescript
-// Add a tag to multiple documents
-bulk_edit_documents({
-  documents: [1, 2, 3],
-  method: "add_tag",
-  tag: 5
-})
-
-// Set correspondent and document type
-bulk_edit_documents({
-  documents: [4, 5],
-  method: "set_correspondent",
-  correspondent: 2
-})
-
-// Merge documents
-bulk_edit_documents({
-  documents: [6, 7, 8],
-  method: "merge",
-  metadata_document_id: 6,
-  delete_originals: true
-})
-
-// Split document into parts
-bulk_edit_documents({
-  documents: [9],
-  method: "split",
-  pages: "[1-2,3-4,5]"
-})
-
-// Modify multiple tags at once
-bulk_edit_documents({
-  documents: [10, 11],
-  method: "modify_tags",
-  add_tags: [1, 2],
-  remove_tags: [3, 4]
-})
-```
-
-#### post_document
-Upload a new document to Paperless-NGX.
-
-Parameters:
-- file: Base64 encoded file content
-- filename: Name of the file
-- title (optional): Title for the document
-- created (optional): DateTime when the document was created (e.g. "2024-01-19" or "2024-01-19 06:15:00+02:00")
-- correspondent (optional): ID of a correspondent
-- document_type (optional): ID of a document type
-- storage_path (optional): ID of a storage path
-- tags (optional): Array of tag IDs
-- archive_serial_number (optional): Archive serial number
-- custom_fields (optional): Array of custom field IDs
-
-```typescript
-post_document({
-  file: "base64_encoded_content",
-  filename: "invoice.pdf",
-  title: "January Invoice",
-  created: "2024-01-19",
-  correspondent: 1,
-  document_type: 2,
-  tags: [1, 3],
-  archive_serial_number: "2024-001"
-})
-```
-
-### Tag Operations
-
-#### list_tags
-Get all tags.
-
-```typescript
-list_tags()
-```
-
-#### create_tag
-Create a new tag.
-
-Parameters:
-- name: Tag name
-- color (optional): Hex color code (e.g. "#ff0000")
-- match (optional): Text pattern to match
-- matching_algorithm (optional): One of "any", "all", "exact", "regular expression", "fuzzy"
-
-```typescript
-create_tag({
-  name: "Invoice",
-  color: "#ff0000",
-  match: "invoice",
-  matching_algorithm: "fuzzy"
-})
-```
-
-### Correspondent Operations
-
-#### list_correspondents
-Get all correspondents.
-
-```typescript
-list_correspondents()
-```
-
-#### create_correspondent
-Create a new correspondent.
-
-Parameters:
-- name: Correspondent name
-- match (optional): Text pattern to match
-- matching_algorithm (optional): One of "any", "all", "exact", "regular expression", "fuzzy"
-
-```typescript
-create_correspondent({
-  name: "ACME Corp",
-  match: "ACME",
-  matching_algorithm: "fuzzy"
-})
-```
-
-### Document Type Operations
-
-#### list_document_types
-Get all document types.
-
-```typescript
-list_document_types()
-```
-
-#### create_document_type
-Create a new document type.
-
-Parameters:
-- name: Document type name
-- match (optional): Text pattern to match
-- matching_algorithm (optional): One of "any", "all", "exact", "regular expression", "fuzzy"
-
-```typescript
-create_document_type({
-  name: "Invoice",
-  match: "invoice total amount due",
-  matching_algorithm: "any"
-})
-```
-
-## Error Handling
-
-The server will show clear error messages if:
-- The Paperless-NGX URL or API token is incorrect
-- The Paperless-NGX server is unreachable
-- The requested operation fails
-- The provided parameters are invalid
-
-## Development
-
-Want to contribute or modify the server? Here's what you need to know:
-
-1. Clone the repository
-2. Install dependencies:
 ```bash
-npm install
+npm ci
+npm test
+npm pack --dry-run
 ```
 
-3. Make your changes to server.js
-4. Test locally:
-```bash
-node server.js http://localhost:8000 your-test-token
-```
+Tests use a local mock Paperless HTTP service and real MCP clients. They cover every tool, request payloads, uploads, errors, OCR preservation, matching codes and simultaneous stdio/HTTP/SSE connections. No production Paperless instance or credentials are used.
 
-The server is built with:
-- [litemcp](https://github.com/wong2/litemcp): A TypeScript framework for building MCP servers
-- [zod](https://github.com/colinhacks/zod): TypeScript-first schema validation
-
-## API Documentation
-
-This MCP server implements endpoints from the Paperless-NGX REST API. For more details about the underlying API, see the [official documentation](https://docs.paperless-ngx.com/api/).
-
-## Running the MCP Server
-
-The MCP server can be run in two modes:
-
-### 1. stdio (default)
-
-This is the default mode. The server communicates over stdio, suitable for CLI and direct integrations.
-
-```
-npm run start -- <baseUrl> <token>
-```
-
-### 2. HTTP (Streamable HTTP Transport)
-
-To run the server as an HTTP service, use the `--http` flag. You can also specify the port with `--port` (default: 3000). This mode requires [Express](https://expressjs.com/) to be installed (it is included as a dependency).
-
-```
-npm run start -- <baseUrl> <token> --http --port 3000
-```
-
-- The MCP API will be available at `POST /mcp` on the specified port.
-- Each request is handled statelessly, following the [StreamableHTTPServerTransport](https://github.com/modelcontextprotocol/typescript-sdk) pattern.
-- GET and DELETE requests to `/mcp` will return 405 Method Not Allowed.
+Sources: [Paperless API](https://docs.paperless-ngx.com/api/), [TypeScript MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk).
