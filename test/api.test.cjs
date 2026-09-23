@@ -68,7 +68,7 @@ test("document reads work when Paperless rejects versioned Accept headers with 4
   });
   const api = new PaperlessAPI("https://example.test", "test-token");
   assert.equal((await api.getDocument(15976)).content, "OCR");
-  assert.equal((await api.getDocuments("?page_size=1")).results[0].id, 15976);
+  assert.equal((await api.getDocuments({ page_size: 1 })).results[0].id, 15976);
   assert.equal((await api.searchDocuments("invoice", 1, 1)).results[0].id, 15976);
   assert.equal(requests.length, 3, "no retries or duplicate requests");
 });

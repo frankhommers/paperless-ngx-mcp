@@ -6,7 +6,7 @@ This fork includes reviewed community fixes and features. See [the PR integratio
 
 ## Protocol support
 
-Version 1.1.2 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
+Version 1.2.0 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
 
 See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
 
@@ -176,3 +176,7 @@ npm pack --dry-run
 Tests use a local mock Paperless HTTP service and real MCP clients. They exercise every tool against both protocol generations over stdio and HTTP, plus legacy SSE compatibility, concurrent clients, protocol negotiation, request payloads, uploads, errors, OCR preservation and matching codes. No production Paperless instance or credentials are used.
 
 Sources: [Paperless API](https://docs.paperless-ngx.com/api/), [TypeScript MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk).
+
+## API contract
+
+The existing 34 tools use generated Paperless API routes and TypeScript models. `npm test` checks generation drift and validates actual tool requests against a pinned OpenAPI snapshot, including multipart uploads. See [contract provenance, corrections and update instructions](specs/README.md). Tool descriptions and compact document results remain handwritten.

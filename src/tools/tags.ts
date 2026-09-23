@@ -1,6 +1,7 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { numericMatchingAlgorithm } from "./matching";
 import { wrap } from "./utils.js";
 
 export function registerTagTools(server: McpServer, api: PaperlessAPI) {
@@ -48,11 +49,7 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Text pattern to automatically assign this tag to matching documents. Use keywords, phrases, or regular expressions depending on matching_algorithm.",
           ),
-        matching_algorithm: z
-          .number()
-          .int()
-          .min(0)
-          .max(6)
+        matching_algorithm: numericMatchingAlgorithm
           .optional()
           .describe(
             "How to match text patterns: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic. Default is 1 (any word).",
@@ -83,7 +80,8 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           ),
         name: z
           .string()
-          .describe("New tag name. Must be unique among all tags."),
+          .min(1).max(128).optional()
+          .describe("New tag name. Omit to preserve the existing name."),
         color: z
           .string()
           .regex(/^#[0-9A-Fa-f]{6}$/)
@@ -97,11 +95,7 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Text pattern for automatic tag assignment. Empty string removes auto-matching. Use keywords, phrases, or regex depending on matching_algorithm.",
           ),
-        matching_algorithm: z
-          .number()
-          .int()
-          .min(0)
-          .max(6)
+        matching_algorithm: numericMatchingAlgorithm
           .optional()
           .describe(
             "Algorithm for pattern matching: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic.",
@@ -115,7 +109,8 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     },
     async (args) => {
       if (!api) throw new Error("Please configure API connection first");
-      return wrap(await api.updateTag(args.id, args));
+      const { id, ...data } = args;
+      return wrap(await api.updateTag(id, data));
     },
   );
 

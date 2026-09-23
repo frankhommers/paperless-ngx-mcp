@@ -1,3 +1,4 @@
+import type { DocumentQuery } from "../api/contract";
 import { PaperlessAPI } from "../api/PaperlessAPI";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -71,17 +72,19 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
       },
     },
     async (args) => {
-      const aliases: Record<string, string> = {
-        correspondent: "correspondent__id",
-        document_type: "document_type__id",
-        tag: "tags__id",
-        storage_path: "storage_path__id",
+      const query: DocumentQuery = {
+        page: args.page,
+        page_size: args.page_size,
+        search: args.search,
+        correspondent__id: args.correspondent,
+        document_type__id: args.document_type,
+        tags__id: args.tag,
+        storage_path__id: args.storage_path,
+        created__date__gte: args.created__gte,
+        created__date__lte: args.created__lte,
+        ordering: args.ordering,
       };
-      const query = new URLSearchParams();
-      for (const [key, value] of Object.entries(args)) {
-        if (value !== undefined) query.set(aliases[key] ?? key, String(value));
-      }
-      return wrap(await api.getDocuments(query.size ? `?${query}` : ""));
+      return wrap(await api.getDocuments(query));
     },
   );
 
@@ -229,8 +232,11 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     },
     async (args) => {
       if (!api) throw new Error("Please configure API connection first");
-      const { documents, method, ...parameters } = args;
-      return wrap(await api.bulkEditDocuments(documents, method, parameters));
+      const { documents, method, permissions, ...parameters } = args;
+      return wrap(await api.bulkEditDocuments(
+        documents, method,
+        method === "set_permissions" ? { ...parameters, ...permissions } : parameters,
+      ));
     },
   );
 

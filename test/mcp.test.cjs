@@ -1,4 +1,5 @@
 const { test } = require("node:test");
+const { validateRequest, toolOperations } = require("./helpers/contract.cjs");
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
@@ -148,6 +149,7 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
       const api = await paperless(t);
       const client = await connectClient(t, api.url, mode);
       const { tools } = await client.listTools();
+      assert.deepEqual(tools.map(t => t.name).sort(), Object.keys(toolOperations).sort());
       const exercised = new Set();
       async function call(name, args, method, path) {
         const result = read(await client.callTool({ name, arguments: args }));
@@ -155,6 +157,7 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
         const request = api.requests.at(-1);
         assert.equal(request.method, method, name);
         assert.equal(request.url, path, name);
+        assert.equal(await validateRequest(request), toolOperations[name], name);
         if (name !== "download_document") {
           assert.equal(request.headers.accept, "application/json", name);
         }
@@ -179,7 +182,7 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
         await call(
           `update_${singular}`,
           { id: 1, name: "Changed" },
-          singular === "tag" ? "PUT" : "PATCH",
+          "PATCH",
           `/api/${plural}/1/`,
         );
         assert.equal(
@@ -291,6 +294,18 @@ for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
         method: "add_tag",
         parameters: { tag: 2 },
       });
+      // Derived from BulkEditSerializer._validate_parameters_set_permissions:
+      // owner, set_permissions and merge belong directly inside parameters.
+      const permissions = {
+        owner: null,
+        set_permissions: { view: { users: [1], groups: [] }, change: { users: [1], groups: [] } },
+        merge: true,
+      };
+      await call("bulk_edit_documents", { documents: [1], method: "set_permissions", permissions }, "POST", "/api/documents/bulk_edit/");
+      assert.deepEqual(JSON.parse(api.requests.at(-1).body).parameters, permissions);
+      await call("update_tag", { id: 1, color: "#123456" }, "PATCH", "/api/tags/1/");
+      assert.deepEqual(JSON.parse(api.requests.at(-1).body), { color: "#123456" });
+      await call("list_documents", { created__gte: "2026-01-01", created__lte: "2026-12-31" }, "GET", "/api/documents/?created__date__gte=2026-01-01&created__date__lte=2026-12-31");
       const download = await call(
         "download_document",
         { id: 1, original: true },

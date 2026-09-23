@@ -2,6 +2,7 @@ import { PaperlessAPI } from "../api/PaperlessAPI";
 import { wrap } from "./utils";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { numericMatchingAlgorithm } from "./matching";
 
 export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
   server.registerTool(
@@ -44,11 +45,7 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Text pattern to automatically assign this storage path to matching documents. Use keywords that appear in documents that should use this path.",
           ),
-        matching_algorithm: z
-          .number()
-          .int()
-          .min(0)
-          .max(6)
+        matching_algorithm: numericMatchingAlgorithm
           .optional()
           .describe(
             "How to match text patterns: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic. Default is 1 (any word).",
@@ -95,11 +92,7 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Text pattern for automatic assignment. Empty string removes auto-matching.",
           ),
-        matching_algorithm: z
-          .number()
-          .int()
-          .min(0)
-          .max(6)
+        matching_algorithm: numericMatchingAlgorithm
           .optional()
           .describe(
             "Algorithm for pattern matching: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic.",

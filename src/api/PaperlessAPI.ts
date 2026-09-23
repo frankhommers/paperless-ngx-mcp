@@ -1,3 +1,9 @@
+import { routes } from "./generated/routes";
+import { operationPath } from "./contract";
+import type {
+  Models, DocumentQuery, OperationName, OperationInput, OperationResult,
+} from "./contract";
+
 /**
  * Normalize the Paperless base URL so that API paths can be appended safely.
  * Trailing slashes are removed: "https://host/" -> "https://host",
@@ -97,21 +103,26 @@ export class PaperlessAPI {
     });
   }
 
-  // Document operations
-  async bulkEditDocuments(documents, method, parameters = {}) {
-    return this.request("/documents/bulk_edit/", {
-      method: "POST",
-      body: JSON.stringify({
-        documents,
-        method,
-        parameters,
-      }),
+  private call<N extends OperationName>(
+    name: N, input: OperationInput<N>,
+  ): Promise<OperationResult<N>> {
+    return this.request(operationPath(name, input), {
+      method: routes[name].method,
+      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
     });
+  }
+
+  // Document operations
+  async bulkEditDocuments(
+    documents: number[], method: Models["MethodEnum"],
+    parameters: Models["BulkEditRequest"]["parameters"] = {},
+  ) {
+    return this.call("bulk_edit", { body: { documents, method, parameters } });
   }
 
   async postDocument(
     file: File,
-    metadata: Record<string, string | number | number[] | undefined> = {},
+    metadata: Omit<Models["PostDocumentRequest"], "document"> = {},
   ) {
     const formData = new FormData();
     formData.append("document", file);
@@ -126,56 +137,40 @@ export class PaperlessAPI {
         formData.append(key, String(value));
       }
     }
-    return this.request("/documents/post_document/", {
+    return this.request(operationPath("documents_post_document_create", {}), {
       method: "POST",
       body: formData,
     });
   }
 
-  async getDocuments(query = "") {
-    const response: any = await this.request(`/documents/${query}`);
-    if (Array.isArray(response?.results)) {
-      response.results = response.results.map(
-        ({ content, download_url, thumbnail_url, ...metadata }) => metadata,
-      );
-    }
-    return response;
+  async getDocuments(query: DocumentQuery = {}) {
+    const response = await this.call("documents_list", { query });
+    return {
+      ...response,
+      results: response.results?.map((doc: Models["Document"] & {
+        download_url?: string; thumbnail_url?: string;
+      }) => {
+        const { content, download_url, thumbnail_url, ...metadata } = doc;
+        return metadata;
+      }),
+    };
   }
 
-  async getDocument(id) {
-    return this.request(`/documents/${id}/`);
+  async getDocument(id: number) {
+    return this.call("documents_retrieve", { path: { id } });
   }
 
-  async searchDocuments(query, page?, pageSize?) {
-    const params = new URLSearchParams();
-    params.set("query", query);
-    if (page) params.set("page", page.toString());
-    if (pageSize) params.set("page_size", pageSize.toString());
-
-    const response: any = await this.request(
-      `/documents/?${params.toString()}`,
-    );
-
-    // Filter out content field and long URLs to reduce token usage
-    if (response.results) {
-      response.results = response.results.map((doc: any) => {
-        const { content, download_url, thumbnail_url, ...rest } = doc;
-        return {
-          ...rest,
-          // Include only document ID for constructing URLs if needed
-          id: doc.id,
-        };
-      });
-    }
-
-    return response;
+  async searchDocuments(query: string, page?: number, pageSize?: number) {
+    return this.getDocuments({ query, page, page_size: pageSize });
   }
 
-  async downloadDocument(id, asOriginal = false) {
+  async downloadDocument(id: number, asOriginal = false) {
     return this.withSafeErrors(async () => {
-      const query = asOriginal ? "?original=true" : "";
+      const path = operationPath("documents_download_retrieve", {
+        path: { id }, query: asOriginal ? { original: true } : {},
+      });
       const response = await fetch(
-        `${this.baseUrl}/api/documents/${id}/download/${query}`,
+        `${this.baseUrl}/api${path}`,
         {
           headers: {
             Authorization: `Token ${this.token}`,
@@ -189,176 +184,111 @@ export class PaperlessAPI {
 
   // Tag operations
   async getTags() {
-    return this.request("/tags/");
+    return this.call("tags_list", {});
   }
 
-  async createTag(data) {
-    return this.request("/tags/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  async createTag(data: Models["TagRequest"]) {
+    return this.call("tags_create", { body: data });
   }
 
-  async updateTag(id, data) {
-    return this.request(`/tags/${id}/`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
+  async updateTag(id: number, data: Models["PatchedTagRequest"]) {
+    return this.call("tags_partial_update", { path: { id }, body: data });
   }
 
-  async deleteTag(id) {
-    return this.request(`/tags/${id}/`, {
-      method: "DELETE",
-    });
+  async deleteTag(id: number) {
+    return this.call("tags_destroy", { path: { id } });
   }
 
   // Correspondent operations
   async getCorrespondents() {
-    return this.request("/correspondents/");
+    return this.call("correspondents_list", {});
   }
 
-  async createCorrespondent(data) {
-    return this.request("/correspondents/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  async createCorrespondent(data: Models["CorrespondentRequest"]) {
+    return this.call("correspondents_create", { body: data });
   }
 
   // Document type operations
   async getDocumentTypes() {
-    return this.request("/document_types/");
+    return this.call("document_types_list", {});
   }
 
-  async createDocumentType(data) {
-    return this.request("/document_types/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  async createDocumentType(data: Models["DocumentTypeRequest"]) {
+    return this.call("document_types_create", { body: data });
   }
 
   // Bulk object operations
-  async bulkEditObjects(objects, objectType, operation, parameters = {}) {
-    return this.request("/bulk_edit_objects/", {
-      method: "POST",
-      body: JSON.stringify({
-        objects,
-        object_type: objectType,
-        operation,
-        ...parameters,
-      }),
+  async bulkEditObjects(
+    objects: number[], objectType: Models["ObjectTypeEnum"],
+    operation: Models["OperationEnum"],
+    parameters: Pick<Models["BulkEditObjectsRequest"], "owner" | "permissions" | "merge"> = {},
+  ) {
+    return this.call("bulk_edit_objects", {
+      body: { objects, object_type: objectType, operation, ...parameters },
     });
   }
 
-  async updateDocument(id, data) {
-    return this.request(`/documents/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+  async updateDocument(id: number, data: Models["PatchedDocumentRequest"]) {
+    return this.call("documents_partial_update", { path: { id }, body: data });
   }
 
   async getCustomFields() {
-    return this.request("/custom_fields/");
+    return this.call("custom_fields_list", {});
   }
 
-  async createCustomField(data) {
-    return this.request("/custom_fields/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  async createCustomField(data: Models["CustomFieldRequest"]) {
+    return this.call("custom_fields_create", { body: data });
   }
 
-  async updateCustomField(id, data) {
-    return this.request(`/custom_fields/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+  async updateCustomField(id: number, data: Models["PatchedCustomFieldRequest"]) {
+    return this.call("custom_fields_partial_update", { path: { id }, body: data });
   }
 
-  async deleteCustomField(id) {
-    return this.request(`/custom_fields/${id}/`, {
-      method: "DELETE",
-    });
+  async deleteCustomField(id: number) {
+    return this.call("custom_fields_destroy", { path: { id } });
   }
 
   async getStoragePaths() {
-    return this.request("/storage_paths/");
+    return this.call("storage_paths_list", {});
   }
 
-  async createStoragePath(data) {
-    return this.request("/storage_paths/", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+  async createStoragePath(data: Models["StoragePathRequest"]) {
+    return this.call("storage_paths_create", { body: data });
   }
 
-  async updateStoragePath(id, data) {
-    return this.request(`/storage_paths/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+  async updateStoragePath(id: number, data: Models["PatchedStoragePathRequest"]) {
+    return this.call("storage_paths_partial_update", { path: { id }, body: data });
   }
 
-  async deleteStoragePath(id) {
-    return this.request(`/storage_paths/${id}/`, {
-      method: "DELETE",
-    });
+  async deleteStoragePath(id: number) {
+    return this.call("storage_paths_destroy", { path: { id } });
   }
 
-  async findSimilarDocuments(documentId, page?, pageSize?) {
-    const params = new URLSearchParams();
-    params.set("more_like_id", documentId.toString());
-    if (page) params.set("page", page.toString());
-    if (pageSize) params.set("page_size", pageSize.toString());
-
-    const response: any = await this.request(
-      `/documents/?${params.toString()}`,
-    );
-
-    // Filter out content field to reduce token usage
-    if (response.results) {
-      response.results = response.results.map((doc: any) => {
-        const { content, download_url, thumbnail_url, ...rest } = doc;
-        return { ...rest, id: doc.id };
-      });
-    }
-
-    return response;
+  async findSimilarDocuments(documentId: number, page?: number, pageSize?: number) {
+    return this.getDocuments({ more_like_id: documentId, page, page_size: pageSize });
   }
 
-  async searchAutocomplete(term, limit?) {
-    const params = new URLSearchParams();
-    if (term) params.set("term", term);
-    if (limit) params.set("limit", limit.toString());
-    return this.request(`/search/autocomplete/?${params.toString()}`);
+  async searchAutocomplete(term: string, limit?: number) {
+    return this.call("search_autocomplete_list", { query: { term, limit } });
   }
 
-  async getTaskStatus(taskId) {
-    return this.request(`/tasks/?${new URLSearchParams({ task_id: taskId })}`);
+  async getTaskStatus(taskId: string) {
+    return this.call("tasks_list", { query: { task_id: taskId } });
   }
 
-  async updateCorrespondent(id, data) {
-    return this.request(`/correspondents/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+  async updateCorrespondent(id: number, data: Models["PatchedCorrespondentRequest"]) {
+    return this.call("correspondents_partial_update", { path: { id }, body: data });
   }
 
-  async deleteCorrespondent(id) {
-    return this.request(`/correspondents/${id}/`, {
-      method: "DELETE",
-    });
+  async deleteCorrespondent(id: number) {
+    return this.call("correspondents_destroy", { path: { id } });
   }
 
-  async updateDocumentType(id, data) {
-    return this.request(`/document_types/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+  async updateDocumentType(id: number, data: Models["PatchedDocumentTypeRequest"]) {
+    return this.call("document_types_partial_update", { path: { id }, body: data });
   }
 
-  async deleteDocumentType(id) {
-    return this.request(`/document_types/${id}/`, {
-      method: "DELETE",
-    });
+  async deleteDocumentType(id: number) {
+    return this.call("document_types_destroy", { path: { id } });
   }
 }
