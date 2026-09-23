@@ -121,7 +121,12 @@ async function connectClient(t, url, mode, logs = []) {
     const TransportType = modern ? ModernStdioTransport : StdioClientTransport;
     transport = new TransportType({
       command: process.execPath,
-      args: ["build/index.js", url + "/", "test-token"],
+      args: modern
+        ? ["build/index.js"]
+        : ["build/index.js", url + "/", "test-token"],
+      env: modern
+        ? { ...process.env, PAPERLESS_URL: url + "/", API_KEY: "test-token" }
+        : undefined,
       stderr: "pipe",
     });
     transport.stderr.on("data", (data) => logs.push(data.toString()));

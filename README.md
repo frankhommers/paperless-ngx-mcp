@@ -6,22 +6,22 @@ This fork includes reviewed community fixes and features. See [the PR integratio
 
 ## Protocol support
 
-Version 1.1.1 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
+Version 1.1.2 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
 
 See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
 
 ## Run directly from GitHub
 
-With npm 12, explicitly permit this GitHub package and its build script:
+With npm 12, explicitly permit this GitHub package and its build script. Pass the token through `API_KEY` because npm can log command-line arguments:
 
 ```bash
-npx -y --allow-git=all \
+API_KEY=your-api-token npx -y --allow-git=all \
   --allow-scripts=github:frankhommers/paperless-ngx-mcp \
   github:frankhommers/paperless-ngx-mcp \
-  http://your-paperless-instance:8000 your-api-token
+  http://your-paperless-instance:8000
 ```
 
-Older npm versions that allow GitHub packages and their prepare scripts can use `npx -y github:frankhommers/paperless-ngx-mcp <baseUrl> <token>`. Add `#<commit>` to the GitHub package reference to pin a revision.
+Older npm versions that allow GitHub packages and their prepare scripts can use `API_KEY=your-api-token npx -y github:frankhommers/paperless-ngx-mcp <baseUrl>`. Add `#<commit>` to the GitHub package reference to pin a revision.
 
 ## Install from source
 
@@ -44,9 +44,11 @@ Configure your MCP client using the absolute path to the compiled entry point:
       "command": "node",
       "args": [
         "/absolute/path/paperless-ngx-mcp/build/index.js",
-        "http://your-paperless-instance:8000",
-        "your-api-token"
-      ]
+        "http://your-paperless-instance:8000"
+      ],
+      "env": {
+        "API_KEY": "your-api-token"
+      }
     }
   }
 }
@@ -61,8 +63,10 @@ Paperless API requests use `Accept: application/json`, allowing the instance to 
 ### stdio
 
 ```bash
-node build/index.js http://localhost:8000 your-api-token
+API_KEY=your-api-token node build/index.js http://localhost:8000
 ```
+
+Stdio also accepts `PAPERLESS_URL`, so both connection settings can come from environment variables. Positional URL and token arguments remain supported and take precedence, but the environment is recommended to avoid exposing tokens in launcher logs.
 
 ### Streamable HTTP and legacy SSE
 

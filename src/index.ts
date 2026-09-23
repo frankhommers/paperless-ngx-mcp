@@ -46,14 +46,14 @@ async function main() {
       process.exit(1);
     }
   } else {
-    baseUrl = args[0];
-    token = args[1];
+    baseUrl = args[0] || process.env.PAPERLESS_URL;
+    token = args[1] || process.env.API_KEY;
     if (!baseUrl || !token) {
       console.error(
-        "Usage: paperless-mcp <baseUrl> <token> [--http] [--port <port>]",
+        "Usage: paperless-mcp [<baseUrl> <token>] [--http] [--port <port>]",
       );
       console.error(
-        "Example: paperless-mcp http://localhost:8000 your-api-token --http --port 3000",
+        "Set PAPERLESS_URL and API_KEY in the environment to keep credentials out of launcher logs.",
       );
       console.error(
         "When using --http, PAPERLESS_URL and API_KEY environment variables must be set.",
@@ -68,7 +68,7 @@ async function main() {
   const api = new PaperlessAPI(baseUrl, token);
 
   function createServer(): McpServer {
-    const server = new McpServer({ name: "paperless-ngx", version: "1.1.1" });
+    const server = new McpServer({ name: "paperless-ngx", version: "1.1.2" });
     registerDocumentTools(server, api);
     registerTagTools(server, api);
     registerCustomFieldTools(server, api);
