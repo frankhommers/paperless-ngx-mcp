@@ -1,33 +1,41 @@
-# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
-# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
-
-name: Node.js Package
+name: Publish npm
 
 on:
   release:
-    types: [created]
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
 
 jobs:
-  build:
+  publish:
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
         with:
-          node-version: 20
-      - run: npm ci
-      - run: npm test
-
-  publish-npm:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org/
-      - run: npm ci
-      - run: npm publish
+          package-manager-cache: false
+      - run: npm install --global npm@12.1.0
+      - name: Verify release version
         env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node -e 'const p = require("./package.json"); if (process.env.RELEASE_TAG !== `v${p.version}`) throw new Error("Release tag must match package.json");'
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Build and inspect release archive
+        run: npm run release:pack
+      - name: Publish with npm trusted publishing
+        run: node scripts/publish-release.cjs

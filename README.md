@@ -10,6 +10,34 @@ Version 1.2.0 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and 
 
 See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
 
+## Run from npm
+
+Requires Node.js 20 or later. Configure `API_KEY` in your MCP client's environment,
+then run:
+
+```bash
+npx -y @frankhommers/paperless-ngx-mcp@latest https://your-paperless-instance
+```
+
+The npm package includes compiled JavaScript. Git access and build-script
+permissions are not needed. `@latest` follows published releases on a new start;
+use `@1.2.0` to pin this release. A running server must be restarted to update.
+
+```json
+{
+  "mcpServers": {
+    "paperless": {
+      "command": "npx",
+      "args": ["-y", "@frankhommers/paperless-ngx-mcp@latest"],
+      "env": {
+        "PAPERLESS_URL": "https://your-paperless-instance",
+        "API_KEY": "your-api-token"
+      }
+    }
+  }
+}
+```
+
 ## Run directly from GitHub
 
 With npm 12, explicitly permit this GitHub package and its build script. Pass the token through `API_KEY` because npm can log command-line arguments:
@@ -33,7 +61,7 @@ cd paperless-ngx-mcp
 npm ci
 ```
 
-`npm ci` builds `build/index.js`. This fork has not been published to npm; upstream npm packages do not contain these changes.
+`npm ci` builds `build/index.js`. The npm package for this fork is `@frankhommers/paperless-ngx-mcp`; upstream packages do not contain these changes.
 
 Configure your MCP client using the absolute path to the compiled entry point:
 
@@ -180,3 +208,7 @@ Sources: [Paperless API](https://docs.paperless-ngx.com/api/), [TypeScript MCP S
 ## API contract
 
 The existing 34 tools use generated Paperless API routes and TypeScript models. `npm test` checks generation drift and validates actual tool requests against a pinned OpenAPI snapshot, including multipart uploads. See [contract provenance, corrections and update instructions](specs/README.md). Tool descriptions and compact document results remain handwritten.
+
+## Releases
+
+Stable GitHub releases publish to npm through OIDC trusted publishing after tests and package checks pass. See [release setup and procedure](docs/releases.md).

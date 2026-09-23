@@ -30,3 +30,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Release archives
+artifacts/
