@@ -14,7 +14,7 @@ npm login
 npm ci
 npm test
 npm run release:pack
-npm publish artifacts/frankhommers-paperless-ngx-mcp-1.2.0.tgz --access public
+npm publish ./artifacts/frankhommers-paperless-ngx-mcp-1.2.0.tgz --access public
 npm trust github @frankhommers/paperless-ngx-mcp \
   --repo frankhommers/paperless-ngx-mcp \
   --file npm-publish.yml --allow-publish --yes

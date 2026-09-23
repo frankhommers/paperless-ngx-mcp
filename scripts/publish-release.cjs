@@ -13,7 +13,7 @@ const release = JSON.parse(fs.readFileSync('artifacts/release.json', 'utf8'));
     return;
   }
   if (response.status !== 404) throw new Error(`Registry lookup failed: HTTP ${response.status}`);
-  execFileSync('npm', ['publish', `artifacts/${release.filename}`, '--access', 'public', '--provenance'], { stdio: 'inherit' });
+  execFileSync('npm', ['publish', `./artifacts/${release.filename}`, '--access', 'public', '--provenance'], { stdio: 'inherit' });
   const verified = await fetch(url, { signal: AbortSignal.timeout(30000) });
   if (!verified.ok || (await verified.json()).dist?.integrity !== release.integrity) {
     throw new Error('Published archive could not be verified in the registry.');
