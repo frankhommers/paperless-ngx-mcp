@@ -1,5 +1,5 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { wrap } from "./utils.js";
 
@@ -43,7 +43,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "List documents with pagination and metadata filters. Returns metadata without OCR text; use get_document for full content.",
-      inputSchema: {
+      inputSchema: z.object({
         page: z.number().int().positive().optional(),
         page_size: z.number().int().min(1).max(100).optional(),
         search: z.string().optional().describe("Search document titles."),
@@ -63,7 +63,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .string()
           .optional()
           .describe("Sort field, e.g. -created for newest first."),
-      },
+      }),
       annotations: {
         title: "List Documents",
         readOnlyHint: true,
@@ -90,7 +90,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Perform bulk operations on multiple documents simultaneously: set correspondent/type/tags, delete, reprocess, merge, split, rotate, or manage permissions. Efficient for managing large document collections.",
-      inputSchema: {
+      inputSchema: z.object({
         documents: z
           .array(z.number())
           .describe(
@@ -220,14 +220,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Rotation angle in degrees when method is 'rotate'. Use 90, 180, or 270 for standard rotations.",
           ),
-      },
+      }),
       annotations: {
         title: "Bulk Edit Documents",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { documents, method, ...parameters } = args;
       return wrap(await api.bulkEditDocuments(documents, method, parameters));
@@ -239,7 +239,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Upload a new document to Paperless-NGX with metadata. Supports PDF, images (PNG/JPG/TIFF), and text files. Automatically processes for OCR and indexing.",
-      inputSchema: {
+      inputSchema: z.object({
         file: z
           .string()
           .describe(
@@ -309,14 +309,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Array of custom field IDs to associate with this document. Custom fields store additional metadata.",
           ),
-      },
+      }),
       annotations: {
         title: "Post Document",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const binaryData = Buffer.from(args.file, "base64");
       const mimeType = args.mime_type || getMimeType(args.filename);
@@ -331,20 +331,20 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Get complete details for a specific document including full metadata, content preview, tags, correspondent, and document type information.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "Unique document ID. Get this from search_documents results. Returns full document metadata, content preview, and associated tags/correspondent/type.",
           ),
-      },
+      }),
       annotations: {
         title: "Get Document",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getDocument(args.id));
     },
@@ -355,7 +355,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Search through documents using full-text search across content, titles, tags, and metadata. Returns document metadata WITHOUT the full OCR content field to prevent token overflow. Use get_document to retrieve full details for specific documents of interest. Supports Paperless-NGX advanced query syntax.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z
           .string()
           .describe(
@@ -378,14 +378,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Number of documents per page (default 25, max 100). Smaller page sizes help avoid token limits when many documents match.",
           ),
-      },
+      }),
       annotations: {
         title: "Search Documents",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.searchDocuments(args.query, args.page, args.page_size),
@@ -398,7 +398,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Download a document file as base64-encoded data. Choose between original uploaded file or processed/archived version with OCR improvements.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -410,14 +410,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Whether to download the original uploaded file (true) or the processed/archived version (false, default). Original files preserve exact formatting but may not include OCR improvements.",
           ),
-      },
+      }),
       annotations: {
         title: "Download Document",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const response = await api.downloadDocument(args.id, args.original);
       return wrap({
@@ -436,7 +436,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Update an existing document's metadata including title, correspondent, document type, tags, storage path, and custom fields. Use this to correct or enhance document organization after upload or OCR processing.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -510,14 +510,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Array of custom field values to set. Each object needs 'field' (ID) and 'value'. Use list_custom_fields to see available fields.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Document",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { id, ...data } = args;
       if (Object.keys(data).length === 0)
@@ -531,7 +531,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Find documents similar to a given document using content-based similarity matching. Useful for detecting duplicates, finding related documents, or discovering documents on similar topics. Returns documents ranked by similarity score.",
-      inputSchema: {
+      inputSchema: z.object({
         document_id: z
           .number()
           .describe(
@@ -554,14 +554,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Number of similar documents per page (default 25, max 100).",
           ),
-      },
+      }),
       annotations: {
         title: "Find Similar Documents",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.findSimilarDocuments(
@@ -578,7 +578,7 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Get search term suggestions based on document content. Useful for building search queries and discovering terms that appear in the document corpus. Returns matching search term suggestions.",
-      inputSchema: {
+      inputSchema: z.object({
         term: z.string().min(1).describe("Partial search term to complete."),
         limit: z
           .number()
@@ -586,14 +586,14 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
           .positive()
           .optional()
           .describe("Maximum number of suggestions to return (default 10)."),
-      },
+      }),
       annotations: {
         title: "Search Autocomplete",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.searchAutocomplete(args.term, args.limit));
     },
@@ -604,21 +604,21 @@ export function registerDocumentTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Check the status of an asynchronous task, such as document upload processing. Use this to poll for completion after uploading documents via post_document.",
-      inputSchema: {
+      inputSchema: z.object({
         task_id: z
           .string()
           .uuid()
           .describe(
             "UUID of the task to check. This is returned by post_document and other asynchronous operations.",
           ),
-      },
+      }),
       annotations: {
         title: "Get Task Status",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getTaskStatus(args.task_id));
     },

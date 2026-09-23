@@ -1,5 +1,5 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { matchingAlgorithm } from "./matching";
 import { wrap } from "./utils.js";
@@ -13,16 +13,16 @@ export function registerDocumentTypeTools(
     {
       description:
         "Retrieve all available document types for categorizing documents by purpose or format (Invoice, Receipt, Contract, etc.). Returns names and automatic matching rules.",
-      inputSchema: {
+      inputSchema: z.object({
         // No parameters - returns all available document types
-      },
+      }),
       annotations: {
         title: "List Document Types",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getDocumentTypes());
     },
@@ -33,7 +33,7 @@ export function registerDocumentTypeTools(
     {
       description:
         "Create a new document type for categorizing documents by their purpose or format (e.g., Invoice, Receipt, Contract). Can include automatic matching rules for smart classification.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe(
@@ -50,14 +50,14 @@ export function registerDocumentTypeTools(
           .describe(
             "How to match text patterns: 'any'=any word matches, 'all'=all words must match, 'exact'=exact phrase match, 'regular expression'=use regex patterns, 'fuzzy'=approximate matching with typos. Default is 'any'.",
           ),
-      },
+      }),
       annotations: {
         title: "Create Document Type",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.createDocumentType(args));
     },
@@ -68,7 +68,7 @@ export function registerDocumentTypeTools(
     {
       description:
         "Perform bulk operations on multiple document types: set permissions to control who can assign them to documents, or permanently delete multiple types. Use with caution as deletion affects all associated documents.",
-      inputSchema: {
+      inputSchema: z.object({
         document_type_ids: z
           .array(z.number())
           .describe(
@@ -132,14 +132,14 @@ export function registerDocumentTypeTools(
           .describe(
             "Whether to merge with existing permissions (true) or replace them entirely (false). Default is false.",
           ),
-      },
+      }),
       annotations: {
         title: "Bulk Edit Document Types",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.bulkEditObjects(
@@ -163,7 +163,7 @@ export function registerDocumentTypeTools(
     {
       description:
         "Modify an existing document type's name or automatic matching rules. Useful for improving document classification accuracy or reorganizing document categories.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -186,14 +186,14 @@ export function registerDocumentTypeTools(
           .describe(
             "Algorithm for pattern matching: 'any'=any word, 'all'=all words, 'exact'=exact phrase, 'regular expression'=regex, 'fuzzy'=approximate.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Document Type",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { id, ...data } = args;
       return wrap(await api.updateDocumentType(id, data));
@@ -205,20 +205,20 @@ export function registerDocumentTypeTools(
     {
       description:
         "Permanently delete a document type from the system. Documents using this type will have their document_type field set to null. Use with caution as this action cannot be undone.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "ID of the document type to permanently delete. Documents using this type will lose their classification. Use list_document_types to find document type IDs.",
           ),
-      },
+      }),
       annotations: {
         title: "Delete Document Type",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.deleteDocumentType(args.id));
     },

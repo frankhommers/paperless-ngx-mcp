@@ -1,6 +1,6 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
 import { wrap } from "./utils";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
@@ -9,14 +9,14 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Retrieve all available custom fields for storing additional document metadata. Returns field definitions including name, data type, and configuration options. Custom fields enable storing structured data like invoice numbers, amounts, dates, or links to external systems.",
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: {
         title: "List Custom Fields",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getCustomFields());
     },
@@ -27,7 +27,7 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Create a new custom field for storing additional document metadata. Custom fields can store various data types including text, numbers, dates, booleans, URLs, monetary values, document links, and selection lists. Useful for integrating with external systems or tracking domain-specific information.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe(
@@ -73,14 +73,14 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Additional configuration depending on data_type. Required for 'select' type (provide select_options). Optional for 'monetary' type (provide default_currency).",
           ),
-      },
+      }),
       annotations: {
         title: "Create Custom Field",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.createCustomField(args));
     },
@@ -91,7 +91,7 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Modify an existing custom field's name or configuration. Preserve select option IDs when editing labels to keep existing document values.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -126,14 +126,14 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Updated configuration for the field. Only applicable fields will be modified.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Custom Field",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { id, ...data } = args;
       return wrap(await api.updateCustomField(id, data));
@@ -145,20 +145,20 @@ export function registerCustomFieldTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Permanently delete a custom field from the system. This removes the field definition AND all values stored in this field across all documents. Use with extreme caution as this action cannot be undone.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "ID of the custom field to permanently delete. WARNING: This will delete the field and ALL its values from every document. Use list_custom_fields to find field IDs.",
           ),
-      },
+      }),
       annotations: {
         title: "Delete Custom Field",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.deleteCustomField(args.id));
     },

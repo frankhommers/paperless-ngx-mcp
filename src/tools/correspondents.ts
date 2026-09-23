@@ -1,5 +1,5 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { matchingAlgorithm } from "./matching";
 import { wrap } from "./utils.js";
@@ -13,14 +13,14 @@ export function registerCorrespondentTools(
     {
       description:
         "Retrieve all available correspondents (people, companies, organizations that send/receive documents). Returns names and automatic matching patterns for document assignment.",
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: {
         title: "List Correspondents",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getCorrespondents());
     },
@@ -31,7 +31,7 @@ export function registerCorrespondentTools(
     {
       description:
         "Create a new correspondent (person, company, or organization) for tracking document senders and receivers. Can include automatic matching patterns for smart assignment to incoming documents.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe(
@@ -48,14 +48,14 @@ export function registerCorrespondentTools(
           .describe(
             "How to match text patterns: 'any'=any word matches, 'all'=all words must match, 'exact'=exact phrase match, 'regular expression'=use regex patterns, 'fuzzy'=approximate matching with typos. Default is 'any'.",
           ),
-      },
+      }),
       annotations: {
         title: "Create Correspondent",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.createCorrespondent(args));
     },
@@ -66,7 +66,7 @@ export function registerCorrespondentTools(
     {
       description:
         "Perform bulk operations on multiple correspondents: set permissions to control who can assign them to documents, or permanently delete multiple correspondents. Use with caution as deletion affects all associated documents.",
-      inputSchema: {
+      inputSchema: z.object({
         correspondent_ids: z
           .array(z.number())
           .describe(
@@ -130,14 +130,14 @@ export function registerCorrespondentTools(
           .describe(
             "Whether to merge with existing permissions (true) or replace them entirely (false). Default is false.",
           ),
-      },
+      }),
       annotations: {
         title: "Bulk Edit Correspondents",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.bulkEditObjects(
@@ -161,7 +161,7 @@ export function registerCorrespondentTools(
     {
       description:
         "Modify an existing correspondent's name or automatic matching rules. Useful for correcting names, improving automatic document assignment, or reorganizing correspondent categories.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -184,14 +184,14 @@ export function registerCorrespondentTools(
           .describe(
             "Algorithm for pattern matching: 'any'=any word, 'all'=all words, 'exact'=exact phrase, 'regular expression'=regex, 'fuzzy'=approximate.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Correspondent",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { id, ...data } = args;
       return wrap(await api.updateCorrespondent(id, data));
@@ -203,20 +203,20 @@ export function registerCorrespondentTools(
     {
       description:
         "Permanently delete a correspondent from the system. Documents using this correspondent will have their correspondent field set to null. Use with caution as this action cannot be undone.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "ID of the correspondent to permanently delete. Documents using this correspondent will lose their correspondent assignment. Use list_correspondents to find correspondent IDs.",
           ),
-      },
+      }),
       annotations: {
         title: "Delete Correspondent",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.deleteCorrespondent(args.id));
     },

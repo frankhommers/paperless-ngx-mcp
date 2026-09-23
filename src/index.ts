@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  McpServer,
+  createMcpHandler,
+  isLegacyRequest,
+  isInitializeRequest,
+} from "@modelcontextprotocol/server";
+import { SSEServerTransport } from "@modelcontextprotocol/server-legacy/sse";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import {
+  NodeStreamableHTTPServerTransport,
+  toNodeHandler,
+  toWebRequest,
+} from "@modelcontextprotocol/node";
 import express from "express";
 import { PaperlessAPI } from "./api/PaperlessAPI";
 import { registerCorrespondentTools } from "./tools/correspondents";
@@ -60,7 +68,7 @@ async function main() {
   const api = new PaperlessAPI(baseUrl, token);
 
   function createServer(): McpServer {
-    const server = new McpServer({ name: "paperless-ngx", version: "1.0.0" });
+    const server = new McpServer({ name: "paperless-ngx", version: "1.1.0" });
     registerDocumentTools(server, api);
     registerTagTools(server, api);
     registerCustomFieldTools(server, api);
@@ -74,21 +82,38 @@ async function main() {
     const app = express();
     app.use(express.json());
 
+    // The modern protocol is stateless. Keep the established session routes
+    // for older clients, selecting the protocol using the SDK's classifier.
+    const modern = createMcpHandler(createServer, { legacy: "reject" });
+    const handleModern = toNodeHandler(modern);
+    app.all("/mcp", async (req, res, next) => {
+      try {
+        const request = await toWebRequest(req, req.body);
+        if (await isLegacyRequest(request, req.body)) {
+          next();
+          return;
+        }
+        await handleModern(req, res, req.body);
+      } catch (error) {
+        next(error);
+      }
+    });
+
     // Store transports for each session
     const sseTransports: Record<string, SSEServerTransport> =
       Object.create(null);
-    const mcpTransports: Record<string, StreamableHTTPServerTransport> =
+    const mcpTransports: Record<string, NodeStreamableHTTPServerTransport> =
       Object.create(null);
 
     app.post("/mcp", async (req, res) => {
       try {
         const sessionId = req.headers["mcp-session-id"] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && mcpTransports[sessionId]) {
           transport = mcpTransports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
-          transport = new StreamableHTTPServerTransport({
+          transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (newSessionId) => {
               mcpTransports[newSessionId] = transport;
@@ -135,13 +160,11 @@ async function main() {
     ) => {
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
       if (!sessionId || !mcpTransports[sessionId]) {
-        res
-          .status(sessionId ? 404 : 400)
-          .json({
-            jsonrpc: "2.0",
-            error: { code: -32000, message: "Invalid or missing session ID" },
-            id: null,
-          });
+        res.status(sessionId ? 404 : 400).json({
+          jsonrpc: "2.0",
+          error: { code: -32000, message: "Invalid or missing session ID" },
+          id: null,
+        });
         return;
       }
       const transport = mcpTransports[sessionId];
@@ -191,14 +214,12 @@ async function main() {
       const address = listener.address();
       const boundPort =
         typeof address === "object" && address ? address.port : port;
-      console.log(
-        `MCP Stateful Streamable HTTP Server listening on port ${boundPort}`,
-      );
+      console.log(`MCP Streamable HTTP Server listening on port ${boundPort}`);
     });
   } else {
-    const server = createServer();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
+    serveStdio(createServer, {
+      onerror: (error) => console.error(error.message),
+    });
   }
 }
 

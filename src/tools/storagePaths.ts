@@ -1,6 +1,6 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
 import { wrap } from "./utils";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
@@ -9,14 +9,14 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Retrieve all available storage paths for organizing documents into folder hierarchies. Storage paths define where documents are stored and can use template variables like {{correspondent}}, {{document_type}}, {{created_year}}, etc.",
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: {
         title: "List Storage Paths",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getStoragePaths());
     },
@@ -27,7 +27,7 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Create a new storage path for organizing documents into folder structures. Storage paths support template variables for dynamic organization based on document metadata.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe(
@@ -53,14 +53,14 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "How to match text patterns: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic. Default is 1 (any word).",
           ),
-      },
+      }),
       annotations: {
         title: "Create Storage Path",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.createStoragePath(args));
     },
@@ -71,7 +71,7 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Modify an existing storage path's name, path template, or matching rules. Changing a path template can rename or move files for documents using it.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -104,14 +104,14 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Algorithm for pattern matching: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Storage Path",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       const { id, ...data } = args;
       return wrap(await api.updateStoragePath(id, data));
@@ -123,20 +123,20 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Permanently delete a storage path from the system. Documents using this path will have their storage_path set to null and retain their document records. Paperless manages the corresponding file paths. Use with caution.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "ID of the storage path to permanently delete. Documents using this path will lose their storage path assignment but files remain intact. Use list_storage_paths to find storage path IDs.",
           ),
-      },
+      }),
       annotations: {
         title: "Delete Storage Path",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.deleteStoragePath(args.id));
     },
@@ -147,7 +147,7 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Perform bulk operations on multiple storage paths: set permissions to control who can assign them to documents, or permanently delete multiple storage paths. Use with caution as deletion affects document organization.",
-      inputSchema: {
+      inputSchema: z.object({
         storage_path_ids: z
           .array(z.number())
           .describe(
@@ -211,14 +211,14 @@ export function registerStoragePathTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Whether to merge with existing permissions (true) or replace them entirely (false). Default is false.",
           ),
-      },
+      }),
       annotations: {
         title: "Bulk Edit Storage Paths",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.bulkEditObjects(

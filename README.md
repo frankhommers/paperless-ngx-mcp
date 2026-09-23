@@ -4,6 +4,25 @@ A community integration fork of [nloui/paperless-mcp](https://github.com/nloui/p
 
 This fork includes reviewed community fixes and features. See [the PR integration record](docs/pr-integration.md) for every upstream PR, attribution, decisions and adaptations.
 
+## Protocol support
+
+Version 1.1.0 uses MCP SDK 2.1.0 and supports **MCP 2026-07-28** over stdio and Streamable HTTP. Older clients can still use the 2025-era initialization handshake and existing HTTP sessions. Legacy SSE endpoints are retained for compatibility. Protocol selection is automatic; clients using the new SDK must opt into modern negotiation.
+
+See [the protocol migration notes](docs/protocol-migration.md) for compatibility details and validation.
+
+## Run directly from GitHub
+
+With npm 12, explicitly permit this GitHub package and its build script:
+
+```bash
+npx -y --allow-git=all \
+  --allow-scripts=github:frankhommers/paperless-ngx-mcp \
+  github:frankhommers/paperless-ngx-mcp \
+  http://your-paperless-instance:8000 your-api-token
+```
+
+Older npm versions that allow GitHub packages and their prepare scripts can use `npx -y github:frankhommers/paperless-ngx-mcp <baseUrl> <token>`. Add `#<commit>` to the GitHub package reference to pin a revision.
+
 ## Install from source
 
 Requires Node.js 20 or later and a Paperless-NGX instance with an API token.
@@ -52,12 +71,13 @@ PAPERLESS_URL=http://localhost:8000 API_KEY=your-api-token \
 
 HTTP mode reads Paperless credentials from `PAPERLESS_URL` and `API_KEY`.
 
-- `POST /mcp`: initialize a session, then send subsequent messages with the returned `Mcp-Session-Id` header.
-- `GET /mcp`: open the session's SSE notification stream.
-- `DELETE /mcp`: terminate the session.
-- `GET /sse` and `POST /messages?sessionId=...`: legacy SSE transport.
+The same `/mcp` endpoint serves both protocol generations:
 
-Each client session has a separate MCP server. Sessions live in memory; use one process or sticky routing, and reconnect after a restart. Clients should terminate sessions when finished. The HTTP listener uses the configured Paperless token for all clients and has no client authentication of its own; keep it on a trusted network or behind an authenticated proxy.
+- **2026-07-28:** stateless requests with protocol metadata, starting with `server/discover`. No initialization handshake or `Mcp-Session-Id` is required.
+- **Older clients:** `POST /mcp` initializes a session, then subsequent requests carry the returned `Mcp-Session-Id`. `GET /mcp` opens its notification stream; `DELETE /mcp` terminates it.
+- **Legacy SSE:** `GET /sse` and `POST /messages?sessionId=...` remain available.
+
+Modern HTTP requests get a fresh MCP server instance. Older clients retain separate in-memory sessions; deployments serving these clients need one process or sticky routing, and clients must reconnect after a restart. Clients should terminate sessions when finished. The HTTP listener uses the configured Paperless token for all clients and has no client authentication of its own; keep it on a trusted network or behind an authenticated proxy.
 
 ### Docker
 
@@ -147,6 +167,6 @@ npm test
 npm pack --dry-run
 ```
 
-Tests use a local mock Paperless HTTP service and real MCP clients. They cover every tool, request payloads, uploads, errors, OCR preservation, matching codes and simultaneous stdio/HTTP/SSE connections. No production Paperless instance or credentials are used.
+Tests use a local mock Paperless HTTP service and real MCP clients. They exercise every tool against both protocol generations over stdio and HTTP, plus legacy SSE compatibility, concurrent clients, protocol negotiation, request payloads, uploads, errors, OCR preservation and matching codes. No production Paperless instance or credentials are used.
 
 Sources: [Paperless API](https://docs.paperless-ngx.com/api/), [TypeScript MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk).

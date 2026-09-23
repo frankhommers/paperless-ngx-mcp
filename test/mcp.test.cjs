@@ -14,6 +14,15 @@ const {
   SSEClientTransport,
 } = require("@modelcontextprotocol/sdk/client/sse.js");
 
+const {
+  Client: ModernClient,
+  StreamableHTTPClientTransport: ModernHTTPTransport,
+} = require("@modelcontextprotocol/client");
+const {
+  StdioClientTransport: ModernStdioTransport,
+} = require("@modelcontextprotocol/client/stdio");
+const modernProtocol = "2026-07-28";
+
 const taskId = "12345678-1234-4234-8234-123456789012";
 const doc = {
   id: 1,
@@ -85,270 +94,304 @@ async function paperless(t) {
   return { url: `http://127.0.0.1:${server.address().port}`, requests };
 }
 
-async function stdio(t, url) {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: ["build/index.js", url + "/", "test-token"],
-    stderr: "pipe",
-  });
-  const client = new Client({ name: "regression-test", version: "1" });
+async function connectClient(t, url, mode) {
+  const modern = mode.endsWith("modern");
+  const ClientType = modern ? ModernClient : Client;
+  const client = new ClientType(
+    { name: "regression-test", version: "1" },
+    modern
+      ? { versionNegotiation: { mode: { pin: modernProtocol } } }
+      : undefined,
+  );
+  let transport;
+  if (mode.startsWith("http")) {
+    const mcpUrl = await httpServer(t, url);
+    const TransportType = modern
+      ? ModernHTTPTransport
+      : StreamableHTTPClientTransport;
+    transport = new TransportType(mcpUrl);
+  } else {
+    const TransportType = modern ? ModernStdioTransport : StdioClientTransport;
+    transport = new TransportType({
+      command: process.execPath,
+      args: ["build/index.js", url + "/", "test-token"],
+      stderr: "inherit",
+    });
+  }
   t.after(() => client.close());
   await client.connect(transport);
+  if (modern) {
+    assert.equal(client.getProtocolEra(), "modern");
+    assert.equal(client.getNegotiatedProtocolVersion(), modernProtocol);
+  }
   return client;
 }
 
-test(
-  "all tools return valid MCP results over stdio and send correct API requests",
-  { timeout: 30000 },
-  async (t) => {
-    const api = await paperless(t);
-    const client = await stdio(t, api.url);
-    const { tools } = await client.listTools();
-    const exercised = new Set();
-    async function call(name, args, method, path) {
-      const result = read(await client.callTool({ name, arguments: args }));
-      exercised.add(name);
-      const request = api.requests.at(-1);
-      assert.equal(request.method, method, name);
-      assert.equal(request.url, path, name);
-      return result;
-    }
-    for (const [singular, plural] of [
-      ["tag", "tags"],
-      ["correspondent", "correspondents"],
-      ["document_type", "document_types"],
-      ["custom_field", "custom_fields"],
-      ["storage_path", "storage_paths"],
-    ]) {
-      await call(`list_${plural}`, {}, "GET", `/api/${plural}/`);
-      const fields = {
-        name: "New",
-        ...(singular === "custom_field" ? { data_type: "string" } : {}),
-        ...(singular === "storage_path"
-          ? { path: "{{ created_year }}/{{ title }}" }
-          : {}),
-      };
-      await call(`create_${singular}`, fields, "POST", `/api/${plural}/`);
-      await call(
-        `update_${singular}`,
-        { id: 1, name: "Changed" },
-        singular === "tag" ? "PUT" : "PATCH",
-        `/api/${plural}/1/`,
-      );
-      assert.equal(
-        await call(
-          `delete_${singular}`,
-          { id: 1 },
-          "DELETE",
-          `/api/${plural}/1/`,
-        ),
-        null,
-      );
-      if (singular !== "custom_field") {
-        await call(
-          `bulk_edit_${plural}`,
-          { [`${singular}_ids`]: [1], operation: "delete" },
-          "POST",
-          "/api/bulk_edit_objects/",
-        );
-        assert.deepEqual(JSON.parse(api.requests.at(-1).body), {
-          objects: [1],
-          object_type: plural,
-          operation: "delete",
-        });
+for (const mode of ["stdio-v1", "stdio-modern", "http-v1", "http-modern"]) {
+  test(
+    `all 34 tools send correct API requests (${mode})`,
+    { timeout: 30000 },
+    async (t) => {
+      const api = await paperless(t);
+      const client = await connectClient(t, api.url, mode);
+      const { tools } = await client.listTools();
+      const exercised = new Set();
+      async function call(name, args, method, path) {
+        const result = read(await client.callTool({ name, arguments: args }));
+        exercised.add(name);
+        const request = api.requests.at(-1);
+        assert.equal(request.method, method, name);
+        assert.equal(request.url, path, name);
+        return result;
       }
-    }
-    const listed = await call(
-      "list_documents",
-      {
-        page: 2,
-        page_size: 10,
-        tag: 3,
-        correspondent: 4,
-        document_type: 5,
-        storage_path: 6,
-        ordering: "-created",
-      },
-      "GET",
-      "/api/documents/?page=2&page_size=10&correspondent__id=4&document_type__id=5&tags__id=3&storage_path__id=6&ordering=-created",
-    );
-    assert.equal(listed.results[0].content, undefined);
-    const full = await call(
-      "get_document",
-      { id: 1 },
-      "GET",
-      "/api/documents/1/",
-    );
-    assert.equal(
-      full.content,
-      doc.content,
-      "OCR must remain available after MCP wrapping",
-    );
-    const patch = {
-      title: "Corrected",
-      content: "Corrected OCR",
-      correspondent: null,
-      tags: [],
-      archive_serial_number: 0,
-      custom_fields: [{ field: 2, value: [3, 4] }],
-    };
-    await call(
-      "update_document",
-      { id: 1, ...patch },
-      "PATCH",
-      "/api/documents/1/",
-    );
-    assert.deepEqual(
-      JSON.parse(api.requests.at(-1).body),
-      patch,
-      "PATCH must preserve nulls and omit id",
-    );
-    for (const [name, args, query] of [
-      [
-        "search_documents",
-        { query: "invoice & tax", page: 2, page_size: 10 },
-        "query=invoice+%26+tax&page=2&page_size=10",
-      ],
-      ["find_similar_documents", { document_id: 1 }, "more_like_id=1"],
-    ]) {
-      const result = await call(name, args, "GET", `/api/documents/?${query}`);
-      assert.equal(result.results[0].content, undefined);
-      assert.equal(result.results[0].download_url, undefined);
-      assert.equal(result.results[0].id, 1);
-    }
-    await call(
-      "search_autocomplete",
-      { term: "inv", limit: 5 },
-      "GET",
-      "/api/search/autocomplete/?term=inv&limit=5",
-    );
-    await call(
-      "get_task_status",
-      { task_id: taskId },
-      "GET",
-      `/api/tasks/?task_id=${taskId}`,
-    );
-    await call(
-      "bulk_edit_documents",
-      { documents: [1], method: "add_tag", tag: 2 },
-      "POST",
-      "/api/documents/bulk_edit/",
-    );
-    assert.deepEqual(JSON.parse(api.requests.at(-1).body), {
-      documents: [1],
-      method: "add_tag",
-      parameters: { tag: 2 },
-    });
-    const download = await call(
-      "download_document",
-      { id: 1, original: true },
-      "GET",
-      "/api/documents/1/download/?original=true",
-    );
-    assert.equal(download.filename, "invoice.pdf");
-    assert.equal(Buffer.from(download.blob, "base64").toString(), "%PDF-test");
-    for (const [filename, override, mime] of [
-      ["test.PDF", undefined, "application/pdf"],
-      ["test.unknown", undefined, "application/octet-stream"],
-      ["test.bin", "image/png", "image/png"],
-    ]) {
-      assert.equal(
-        await call(
-          "post_document",
-          {
-            file: Buffer.from("file contents").toString("base64"),
-            filename,
-            mime_type: override,
-          archive_serial_number: override ? "0" : 0,
-            tags: [1],
-            custom_fields: [2],
-          },
-          "POST",
-          "/api/documents/post_document/",
-        ),
-        taskId,
-      );
-      assert.match(
-        api.requests.at(-1).headers["content-type"],
-        /^multipart\/form-data; boundary=/,
-      );
-      assert.ok(api.requests.at(-1).body.includes(`Content-Type: ${mime}`));
-    }
-    assert.equal(tools.length, 34);
-    assert.deepEqual(new Set(tools.map((tool) => tool.name)), exercised);
-    for (const tool of tools) {
-      const readOnly = /^(list|get|search|find|download)_/.test(tool.name);
-      assert.equal(tool.annotations.readOnlyHint, readOnly, tool.name);
-      assert.equal(
-        tool.annotations.destructiveHint,
-        !readOnly && !/^(create|post)_/.test(tool.name),
-        tool.name,
-      );
-    }
-  },
-);
-
-test(
-  "matching, custom-field schemas and errors survive SDK validation",
-  { timeout: 15000 },
-  async (t) => {
-    const api = await paperless(t);
-    const client = await stdio(t, api.url);
-    for (const resource of ["correspondent", "document_type"]) {
-      for (const [name, number] of [
-        ["none", 0],
-        ["any", 1],
-        ["all", 2],
-        ["exact", 3],
-        ["regular expression", 4],
-        ["fuzzy", 5],
-        ["auto", 6],
+      for (const [singular, plural] of [
+        ["tag", "tags"],
+        ["correspondent", "correspondents"],
+        ["document_type", "document_types"],
+        ["custom_field", "custom_fields"],
+        ["storage_path", "storage_paths"],
       ]) {
-        for (const action of ["create", "update"]) {
-          read(
-            await client.callTool({
-              name: `${action}_${resource}`,
-              arguments: { id: 1, name: "Test", matching_algorithm: name },
-            }),
+        await call(`list_${plural}`, {}, "GET", `/api/${plural}/`);
+        const fields = {
+          name: "New",
+          ...(singular === "custom_field" ? { data_type: "string" } : {}),
+          ...(singular === "storage_path"
+            ? { path: "{{ created_year }}/{{ title }}" }
+            : {}),
+        };
+        await call(`create_${singular}`, fields, "POST", `/api/${plural}/`);
+        await call(
+          `update_${singular}`,
+          { id: 1, name: "Changed" },
+          singular === "tag" ? "PUT" : "PATCH",
+          `/api/${plural}/1/`,
+        );
+        assert.equal(
+          await call(
+            `delete_${singular}`,
+            { id: 1 },
+            "DELETE",
+            `/api/${plural}/1/`,
+          ),
+          null,
+        );
+        if (singular !== "custom_field") {
+          await call(
+            `bulk_edit_${plural}`,
+            { [`${singular}_ids`]: [1], operation: "delete" },
+            "POST",
+            "/api/bulk_edit_objects/",
           );
-          assert.equal(
-            JSON.parse(api.requests.at(-1).body).matching_algorithm,
-            number,
-          );
+          assert.deepEqual(JSON.parse(api.requests.at(-1).body), {
+            objects: [1],
+            object_type: plural,
+            operation: "delete",
+          });
         }
       }
-    }
-    const extra_data = {
-      select_options: [{ id: "retained", label: "Renamed" }, { label: "New" }],
-    };
-    read(
-      await client.callTool({
-        name: "create_custom_field",
-        arguments: { name: "Status", data_type: "select", extra_data },
-      }),
-    );
-    assert.deepEqual(
-      JSON.parse(api.requests.at(-1).body).extra_data,
-      extra_data,
-    );
-    for (const [name, args] of [
-      ["update_document", { id: 1 }],
-      ["search_documents", { query: "x", page_size: 101 }],
-      ["search_autocomplete", {}],
-      ["get_task_status", { task_id: "x&other=y" }],
-    ]) {
-      const count = api.requests.length;
-      const result = await client.callTool({ name, arguments: args });
-      assert.equal(result.isError, true, name);
-      assert.equal(api.requests.length, count);
-    }
-    for (const name of ["get_document", "download_document"]) {
-      const result = await client.callTool({ name, arguments: { id: 999 } });
-      assert.equal(result.isError, true);
-      assert.match(result.content[0].text, /404/);
-    }
-  },
-);
+      const listed = await call(
+        "list_documents",
+        {
+          page: 2,
+          page_size: 10,
+          tag: 3,
+          correspondent: 4,
+          document_type: 5,
+          storage_path: 6,
+          ordering: "-created",
+        },
+        "GET",
+        "/api/documents/?page=2&page_size=10&correspondent__id=4&document_type__id=5&tags__id=3&storage_path__id=6&ordering=-created",
+      );
+      assert.equal(listed.results[0].content, undefined);
+      const full = await call(
+        "get_document",
+        { id: 1 },
+        "GET",
+        "/api/documents/1/",
+      );
+      assert.equal(
+        full.content,
+        doc.content,
+        "OCR must remain available after MCP wrapping",
+      );
+      const patch = {
+        title: "Corrected",
+        content: "Corrected OCR",
+        correspondent: null,
+        tags: [],
+        archive_serial_number: 0,
+        custom_fields: [{ field: 2, value: [3, 4] }],
+      };
+      await call(
+        "update_document",
+        { id: 1, ...patch },
+        "PATCH",
+        "/api/documents/1/",
+      );
+      assert.deepEqual(
+        JSON.parse(api.requests.at(-1).body),
+        patch,
+        "PATCH must preserve nulls and omit id",
+      );
+      for (const [name, args, query] of [
+        [
+          "search_documents",
+          { query: "invoice & tax", page: 2, page_size: 10 },
+          "query=invoice+%26+tax&page=2&page_size=10",
+        ],
+        ["find_similar_documents", { document_id: 1 }, "more_like_id=1"],
+      ]) {
+        const result = await call(
+          name,
+          args,
+          "GET",
+          `/api/documents/?${query}`,
+        );
+        assert.equal(result.results[0].content, undefined);
+        assert.equal(result.results[0].download_url, undefined);
+        assert.equal(result.results[0].id, 1);
+      }
+      await call(
+        "search_autocomplete",
+        { term: "inv", limit: 5 },
+        "GET",
+        "/api/search/autocomplete/?term=inv&limit=5",
+      );
+      await call(
+        "get_task_status",
+        { task_id: taskId },
+        "GET",
+        `/api/tasks/?task_id=${taskId}`,
+      );
+      await call(
+        "bulk_edit_documents",
+        { documents: [1], method: "add_tag", tag: 2 },
+        "POST",
+        "/api/documents/bulk_edit/",
+      );
+      assert.deepEqual(JSON.parse(api.requests.at(-1).body), {
+        documents: [1],
+        method: "add_tag",
+        parameters: { tag: 2 },
+      });
+      const download = await call(
+        "download_document",
+        { id: 1, original: true },
+        "GET",
+        "/api/documents/1/download/?original=true",
+      );
+      assert.equal(download.filename, "invoice.pdf");
+      assert.equal(
+        Buffer.from(download.blob, "base64").toString(),
+        "%PDF-test",
+      );
+      for (const [filename, override, mime] of [
+        ["test.PDF", undefined, "application/pdf"],
+        ["test.unknown", undefined, "application/octet-stream"],
+        ["test.bin", "image/png", "image/png"],
+      ]) {
+        assert.equal(
+          await call(
+            "post_document",
+            {
+              file: Buffer.from("file contents").toString("base64"),
+              filename,
+              mime_type: override,
+              archive_serial_number: override ? "0" : 0,
+              tags: [1],
+              custom_fields: [2],
+            },
+            "POST",
+            "/api/documents/post_document/",
+          ),
+          taskId,
+        );
+        assert.match(
+          api.requests.at(-1).headers["content-type"],
+          /^multipart\/form-data; boundary=/,
+        );
+        assert.ok(api.requests.at(-1).body.includes(`Content-Type: ${mime}`));
+      }
+      assert.equal(tools.length, 34);
+      assert.deepEqual(new Set(tools.map((tool) => tool.name)), exercised);
+      for (const tool of tools) {
+        const readOnly = /^(list|get|search|find|download)_/.test(tool.name);
+        assert.equal(tool.annotations.readOnlyHint, readOnly, tool.name);
+        assert.equal(
+          tool.annotations.destructiveHint,
+          !readOnly && !/^(create|post)_/.test(tool.name),
+          tool.name,
+        );
+      }
+    },
+  );
+
+  test(
+    `matching, custom-field schemas and errors survive SDK validation (${mode})`,
+    { timeout: 15000 },
+    async (t) => {
+      const api = await paperless(t);
+      const client = await connectClient(t, api.url, mode);
+      for (const resource of ["correspondent", "document_type"]) {
+        for (const [name, number] of [
+          ["none", 0],
+          ["any", 1],
+          ["all", 2],
+          ["exact", 3],
+          ["regular expression", 4],
+          ["fuzzy", 5],
+          ["auto", 6],
+        ]) {
+          for (const action of ["create", "update"]) {
+            read(
+              await client.callTool({
+                name: `${action}_${resource}`,
+                arguments: { id: 1, name: "Test", matching_algorithm: name },
+              }),
+            );
+            assert.equal(
+              JSON.parse(api.requests.at(-1).body).matching_algorithm,
+              number,
+            );
+          }
+        }
+      }
+      const extra_data = {
+        select_options: [
+          { id: "retained", label: "Renamed" },
+          { label: "New" },
+        ],
+      };
+      read(
+        await client.callTool({
+          name: "create_custom_field",
+          arguments: { name: "Status", data_type: "select", extra_data },
+        }),
+      );
+      assert.deepEqual(
+        JSON.parse(api.requests.at(-1).body).extra_data,
+        extra_data,
+      );
+      for (const [name, args] of [
+        ["update_document", { id: 1 }],
+        ["search_documents", { query: "x", page_size: 101 }],
+        ["search_autocomplete", {}],
+        ["get_task_status", { task_id: "x&other=y" }],
+      ]) {
+        const count = api.requests.length;
+        const result = await client.callTool({ name, arguments: args });
+        assert.equal(result.isError, true, name);
+        assert.equal(api.requests.length, count);
+      }
+      for (const name of ["get_document", "download_document"]) {
+        const result = await client.callTool({ name, arguments: { id: 999 } });
+        assert.equal(result.isError, true);
+        assert.match(result.content[0].text, /404/);
+      }
+    },
+  );
+}
 
 async function httpServer(t, apiUrl) {
   const child = spawn(
@@ -416,8 +459,19 @@ test(
         return client;
       }),
     );
+    const modernClients = await Promise.all(
+      [1, 2].map(async () => {
+        const client = new ModernClient(
+          { name: "coexistence-test", version: "1" },
+          { versionNegotiation: { mode: { pin: modernProtocol } } },
+        );
+        t.after(() => client.close());
+        await client.connect(new ModernHTTPTransport(url));
+        return client;
+      }),
+    );
     await Promise.all(
-      [...clients, ...sseClients].map(async (client) =>
+      [...clients, ...sseClients, ...modernClients].map(async (client) =>
         assert.equal(
           read(
             await client.callTool({
@@ -465,5 +519,125 @@ test(
       await response.text();
     }
     await transports[1].terminateSession();
+    for (const client of [...sseClients, ...modernClients]) {
+      assert.equal((await client.listTools()).tools.length, 34);
+    }
+  },
+);
+
+test(
+  "modern HTTP is stateless and invalid protocol claims never fall back to legacy",
+  { timeout: 15000 },
+  async (t) => {
+    const api = await paperless(t);
+    const url = await httpServer(t, api.url);
+    const exchanges = [];
+    const transport = new ModernHTTPTransport(url, {
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body =
+          request.method === "POST" ? await request.clone().json() : undefined;
+        const response = await fetch(request);
+        exchanges.push({
+          body,
+          headers: request.headers,
+          responseHeaders: response.headers,
+        });
+        return response;
+      },
+    });
+    const client = new ModernClient(
+      { name: "protocol-test", version: "1" },
+      {
+        versionNegotiation: { mode: { pin: modernProtocol } },
+      },
+    );
+    t.after(() => client.close());
+    await client.connect(transport);
+    assert.equal(client.getNegotiatedProtocolVersion(), modernProtocol);
+    assert.equal((await client.listTools()).tools.length, 34);
+    assert.equal(
+      read(
+        await client.callTool({ name: "get_document", arguments: { id: 1 } }),
+      ).content,
+      doc.content,
+    );
+    assert.equal(transport.sessionId, undefined);
+    assert.ok(exchanges.some((e) => e.body?.method === "server/discover"));
+    assert.ok(!exchanges.some((e) => e.body?.method === "initialize"));
+    for (const exchange of exchanges) {
+      assert.equal(exchange.headers.get("mcp-session-id"), null);
+      assert.equal(exchange.responseHeaders.get("mcp-session-id"), null);
+      if (exchange.body)
+        assert.equal(
+          exchange.body.params._meta["io.modelcontextprotocol/protocolVersion"],
+          modernProtocol,
+        );
+    }
+
+    const opening = exchanges.find((e) => e.body?.method === "server/discover");
+    const requestCount = api.requests.length;
+    for (const kind of ["unsupported", "malformed", "header mismatch"]) {
+      const body = structuredClone(opening.body);
+      const headers = new Headers(opening.headers);
+      if (kind === "unsupported") {
+        body.params._meta["io.modelcontextprotocol/protocolVersion"] =
+          "2099-01-01";
+        headers.set("mcp-protocol-version", "2099-01-01");
+      } else if (kind === "malformed") {
+        body.params._meta = 42;
+      } else {
+        headers.set("mcp-protocol-version", "2025-11-25");
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.status, 400, kind);
+      const error = (await response.json()).error;
+      assert.equal(
+        error.code,
+        kind === "unsupported"
+          ? -32022
+          : kind === "malformed"
+            ? -32600
+            : -32020,
+        kind,
+      );
+    }
+    assert.equal(api.requests.length, requestCount);
+    assert.equal(
+      (await client.listTools()).tools.length,
+      34,
+      "bad requests do not poison later requests",
+    );
+  },
+);
+
+test(
+  "SDK v2 auto negotiation selects modern stdio and HTTP",
+  { timeout: 15000 },
+  async (t) => {
+    const api = await paperless(t);
+    const url = await httpServer(t, api.url);
+    for (const transport of [
+      new ModernStdioTransport({
+        command: process.execPath,
+        args: ["build/index.js", api.url, "test-token"],
+      }),
+      new ModernHTTPTransport(url),
+    ]) {
+      const client = new ModernClient(
+        { name: "auto-test", version: "1" },
+        { versionNegotiation: { mode: "auto" } },
+      );
+      t.after(() => client.close());
+      await client.connect(transport);
+      assert.equal(client.getProtocolEra(), "modern");
+      assert.equal(client.getNegotiatedProtocolVersion(), modernProtocol);
+      assert.equal((await client.listTools()).tools.length, 34);
+      await client.close();
+    }
   },
 );

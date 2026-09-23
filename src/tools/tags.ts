@@ -1,5 +1,5 @@
 import { PaperlessAPI } from "../api/PaperlessAPI";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { wrap } from "./utils.js";
 
@@ -9,16 +9,16 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Retrieve all available tags for labeling and organizing documents. Returns tag names, colors, and matching rules for automatic assignment.",
-      inputSchema: {
+      inputSchema: z.object({
         // No parameters - returns all available tags
-      },
+      }),
       annotations: {
         title: "List Tags",
         readOnlyHint: true,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.getTags());
     },
@@ -29,7 +29,7 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Create a new tag for labeling and organizing documents. Tags can have colors for visual identification and automatic matching rules for smart assignment.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe(
@@ -57,14 +57,14 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "How to match text patterns: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic. Default is 1 (any word).",
           ),
-      },
+      }),
       annotations: {
         title: "Create Tag",
         readOnlyHint: false,
         destructiveHint: false,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.createTag(args));
     },
@@ -75,7 +75,7 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Modify an existing tag's name, color, or automatic matching rules. Useful for refining tag organization and improving automatic document classification.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
@@ -106,14 +106,14 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Algorithm for pattern matching: 0=none, 1=any word, 2=all words, 3=exact phrase, 4=regular expression, 5=fuzzy, 6=automatic.",
           ),
-      },
+      }),
       annotations: {
         title: "Update Tag",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.updateTag(args.id, args));
     },
@@ -124,20 +124,20 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Permanently delete a tag from the system. This removes the tag from all documents that currently use it. Use with caution as this action cannot be undone.",
-      inputSchema: {
+      inputSchema: z.object({
         id: z
           .number()
           .describe(
             "ID of the tag to permanently delete. This will remove the tag from all documents that currently use it. Use list_tags to find tag IDs.",
           ),
-      },
+      }),
       annotations: {
         title: "Delete Tag",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(await api.deleteTag(args.id));
     },
@@ -148,7 +148,7 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
     {
       description:
         "Perform bulk operations on multiple tags: set permissions to control access or permanently delete multiple tags at once. Efficient for managing large tag collections.",
-      inputSchema: {
+      inputSchema: z.object({
         tag_ids: z
           .array(z.number())
           .describe(
@@ -208,14 +208,14 @@ export function registerTagTools(server: McpServer, api: PaperlessAPI) {
           .describe(
             "Whether to merge with existing permissions (true) or replace them entirely (false). Default is false.",
           ),
-      },
+      }),
       annotations: {
         title: "Bulk Edit Tags",
         readOnlyHint: false,
         destructiveHint: true,
       },
     },
-    async (args, extra) => {
+    async (args) => {
       if (!api) throw new Error("Please configure API connection first");
       return wrap(
         await api.bulkEditObjects(
